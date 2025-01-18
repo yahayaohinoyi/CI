@@ -7,6 +7,11 @@ fn main() {
     }
     let yaml_file_path = &args[1];
     let config = parse(yaml_file_path);
+
+    match config {
+        Ok(content) => println!("config file is: {}", content),
+        Err(err) => eprint!("error is: {} source {:?} \n", err, err.source())
+    }
     
     println!("Hello, world!");
 }
