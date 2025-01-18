@@ -10,8 +10,8 @@ fn main() {
 
     match config {
         Ok(content) => println!("config file is: {}", content),
-        Err(err) => eprint!("error is: {} source {:?} \n", err, err.source())
+        Err(err) => eprint!("error is: {} source {:?} \n", err, err.source()),
     }
-    
+
     println!("Hello, world!");
 }

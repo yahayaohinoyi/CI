@@ -1,7 +1,7 @@
 use anyhow::Context;
+use serde;
 use serde::Deserialize;
 use serde::Deserializer;
-use serde;
 use serde_yaml;
 use std::collections::HashMap;
 
@@ -56,6 +56,24 @@ pub enum Os {
     Windows(String),
 }
 
+fn deserialize_os<'de, D>(deserializer: D) -> Result<Os, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let os_str: String = Deserialize::deserialize(deserializer)?;
+
+    match os_str.as_str() {
+        "ubuntu-latest" => Ok(Os::Linux(os_str)),
+        "linux" => Ok(Os::Linux(os_str)),
+        "mac" => Ok(Os::Mac(os_str)),
+        "windows" => Ok(Os::Windows(os_str)),
+        _ => Err(serde::de::Error::unknown_variant(
+            &os_str,
+            &["ubuntu-latest", "linux", "mac", "windows"],
+        )),
+    }
+}
+
 impl<'de> Deserialize<'de> for Os {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -78,8 +96,27 @@ impl<'de> Deserialize<'de> for Os {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Job {
+    #[serde(deserialize_with = "deserialize_os")]
     runs_on: Os,
     steps: Vec<Step>,
+}
+
+#[derive(Debug, Clone)]
+pub enum JobType {
+    Build(Job),
+    Test(Job),
+    Deploy(Job),
+    Lint(Job),
+}
+
+impl<'de> Deserialize<'de> for JobType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let job: Job = Deserialize::deserialize(deserializer)?;
+        Ok(JobType::Build(job))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
