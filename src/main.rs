@@ -1,18 +1,14 @@
 use CI::parse;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: <ci_tool <YAML_FILE>>");
         std::process::exit(1);
     }
     let yaml_file_path = &args[1];
-    let config = parse(yaml_file_path);
+    let config = parse(yaml_file_path)?;
 
-    match config {
-        Ok(content) => println!("config file is: {}", content),
-        Err(err) => eprint!("error is: {} source {:?} \n", err, err.source()),
-    }
-
-    println!("Hello, world!");
+    println!("config file content {}", config);
+    Ok(())
 }
