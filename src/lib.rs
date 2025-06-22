@@ -1,5 +1,6 @@
 pub mod config_parser;
 pub use config_parser::parser::parse;
+pub use config_parser::parser::Job;
 
 pub mod execution_engine;
 

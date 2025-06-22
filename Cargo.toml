@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 serde={version = "1.0",features = ["derive"]}
 serde_yaml="0.9"
-anyhow="1.0"
+anyhow="1.0.98"
 structopt="0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
+bollard="0.19.1"
+uuid = { version = "1", features = ["v4"] }
