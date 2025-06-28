@@ -97,8 +97,8 @@ impl<'de> Deserialize<'de> for Os {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Job {
     #[serde(deserialize_with = "deserialize_os")]
-    runs_on: Os,
-    steps: Vec<Step>,
+    pub(crate) runs_on: Os,
+    pub(crate) steps: Vec<Step>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,11 +121,11 @@ impl<'de> Deserialize<'de> for JobType {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Step {
-    name: String,
-    uses: Option<String>,
-    run: Option<String>,
+    pub(crate) name: String,
+    pub(crate) uses: Option<String>,
+    pub(crate) run: Option<String>,
     #[serde(default)]
-    with: Option<HashMap<String, String>>,
+    pub(crate) with: Option<HashMap<String, String>>,
 }
 
 pub fn parse(yaml_file_path: &str) -> anyhow::Result<Config> {
