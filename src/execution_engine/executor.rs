@@ -1,9 +1,12 @@
-use crate::Step;
-use anyhow::{Context, Ok};
-use bollard::container::{CreateContainerOptions, StartContainerOptions};
-use bollard::exec::{CreateExecOptions, StartExecOptions};
+use anyhow::Context;
+use bollard::container::LogOutput;
+use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::ContainerCreateBody;
+use bollard::query_parameters::{
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
+};
 use bollard::Docker;
+use futures_util::TryStreamExt;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -19,60 +22,88 @@ impl Executor {
     }
 
     pub async fn execute(&self) -> anyhow::Result<String> {
-        let _ = self
+        let container = self
             .start_container()
             .await
-            .context("Cannot start container");
-        let exec_id = Uuid::new_v4();
+            .context("Cannot start container")?;
+
+        let result = self.execute_in_container(&container.id).await;
+        let cleanup = self.remove_container(&container.id).await;
+
+        result?;
+        cleanup?;
+
+        Ok(String::from("container executed"))
+    }
+
+    async fn execute_in_container(&self, container_id: &str) -> anyhow::Result<()> {
         let create_exec_option = CreateExecOptions {
-            cmd: None,
+            cmd: Some(vec!["ps", "-ef"]),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
             ..Default::default()
         };
 
-        self.docker
-            .create_exec(&format!("{}", exec_id), create_exec_option)
-            .await;
+        let exec = self
+            .docker
+            .create_exec(container_id, create_exec_option)
+            .await
+            .context("Failed to create exec")?;
 
         let start_exec_options = StartExecOptions {
-            detach: true,
-            tty: true,
+            detach: false,
+            tty: false,
             output_capacity: Some(8 * 1024),
         };
 
-        self.docker
-            .start_exec(&format!("{}", exec_id), Some(start_exec_options));
-
-        Ok(String::from("container executing"))
-    }
-
-    async fn start_container(&self) -> anyhow::Result<()> {
-        let container = self
-            .create_container()
-            .await
-            .inspect_err(|err| eprintln!("Error encountered while creating container"))?;
-
-        let start_container_options = StartContainerOptions::<String> { detach_keys: None };
-
         let result = self
             .docker
-            .start_container(&container, None::<StartContainerOptions<String>>)
+            .start_exec(&exec.id, Some(start_exec_options))
+            .await
+            .context("Failed to start exec")?;
+
+        match result {
+            StartExecResults::Attached { output, .. } => {
+                let logs = output.try_collect::<Vec<LogOutput>>().await?;
+                for log in logs {
+                    print!("{}", String::from_utf8_lossy(&log.into_bytes()));
+                }
+                Ok(())
+            }
+            StartExecResults::Detached => anyhow::bail!("Expected an attached exec session"),
+        }
+    }
+
+    async fn create_image(&self) -> anyhow::Result<()> {
+        let options = CreateImageOptionsBuilder::default()
+            .from_image("alpine")
+            .tag("3.20")
+            .build();
+
+        self.docker
+            .create_image(Some(options), None, None)
+            .try_collect::<Vec<_>>()
             .await?;
 
         Ok(())
     }
 
-    async fn create_container(&self) -> anyhow::Result<String> {
+    async fn create_container(&self) -> anyhow::Result<bollard::config::ContainerCreateResponse> {
         let docker = &self.docker;
+        self.create_image().await?;
 
-        let id = Uuid::new_v4();
-        let options = CreateContainerOptions {
-            name: format!("docker-container-{}", id),
-            platform: Some("linux/amd64".to_string()),
-        };
+        let options = CreateContainerOptionsBuilder::default()
+            .name(&format!("docker-container-{}", Uuid::new_v4()))
+            .build();
 
-        let cmd = Some(vec![String::from("echo"), String::from("Hello World!")]);
+        let cmd = Some(vec![
+            "sh".to_owned(),
+            "-c".to_owned(),
+            "while :; do sleep 3600; done".to_owned(),
+        ]);
 
         let config = ContainerCreateBody {
+            image: Some("alpine:3.20".to_owned()),
             hostname: Some("localhost".to_owned()),
             cmd,
             ..Default::default()
@@ -83,19 +114,29 @@ impl Executor {
             .await
             .context("Failed to create docker container")?;
 
-        Ok(container.id)
+        Ok(container)
     }
 
-    fn make_command_for_step(step: &Step) -> Option<Vec<String>> {
-        let command = step
-            .run
-            .as_ref()
-            .map(|cmd| cmd.split_whitespace())
-            .into_iter()
-            .flatten()
-            .map(str::to_string)
-            .collect::<Vec<String>>();
+    async fn start_container(&self) -> anyhow::Result<bollard::config::ContainerCreateResponse> {
+        let container = self
+            .create_container()
+            .await
+            .context("Failed to create docker container")?;
 
-        Some(command)
+        self.docker
+            .start_container(&container.id, None)
+            .await
+            .context("Failed to start container")?;
+
+        Ok(container)
+    }
+
+    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
+        let options = RemoveContainerOptionsBuilder::default().force(true).build();
+
+        self.docker
+            .remove_container(container_id, Some(options))
+            .await
+            .context("Failed to remove container")
     }
 }
